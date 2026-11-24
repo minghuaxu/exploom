@@ -36,6 +36,18 @@ Exploom 专为“单本地 Coding Agent 通过 SSH 控制多台远端 GPU 服务
 
 ---
 
+## 兼容矩阵
+
+Exploom 核心是标准的 Python CLI + MCP Server，不绑定特定工具，主流 AI Coding Agent 与纯终端均可使用：
+
+| 使用方式 | 支持的工具 | 可用能力 |
+| :--- | :--- | :--- |
+| **一键插件（最完整）** | **ZCode**、**Claude Code** | 5 个 MCP 工具 + `SKILL.md` + 5 个 Slash Commands + 2 个自动 Hooks 全套生效 |
+| **通用 MCP + Rules** | **Cursor、Codex、Windsurf、Cline、Gemini CLI** 等任何支持 MCP 的 Agent | 配上 `exploom-mcp`（或 `uvx`）即可用全部 5 个 MCP 工具；配合 `exploom integrate` 或 `skills/exploom/SKILL.md` 自动协作（仅无两个自动 Hooks） |
+| **纯 CLI（零依赖 MCP）** | **任意支持 Bash 的 Agent**、无 MCP 权限的子智能体、或**人类终端** | `exploom` / `exp` 完整命令集，所有子命令均支持 `--json` |
+
+---
+
 ## 快速开始
 
 ### 一句话让 AI Agent 自动安装（推荐）
@@ -77,7 +89,24 @@ uvx --from git+https://github.com/minghuaxu/exploom.git exploom-mcp
 - 5 个 Slash Commands：`/exp`、`/exp-resume <E0xx>`、`/exp-sync`、`/exp-rerun <E0xx>`、`/exp-collect`
 - 2 个纯标准库 Hooks：`SessionStart`（~15ms 只读 SQLite 注入态势卡片）与 `PostToolUse(Bash)`（低噪音检测未登记后台 SSH 任务）
 
-### 3. 可选 `AGENTS.md` 接入（串联自定义子智能体）
+### 3. 其他支持 MCP 的 Agent（Cursor / Codex / Windsurf / Cline / Gemini CLI 等）
+
+将以下配置加入对应工具的 MCP 配置文件即可接入全部 5 个 MCP 工具（若已安装 `exploom-mcp`，也可直接把 `command` 设为 `"exploom-mcp"` 并省略 `args`）：
+
+```json
+{
+  "mcpServers": {
+    "exploom": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/minghuaxu/exploom.git", "exploom-mcp"]
+    }
+  }
+}
+```
+
+> 建议同时把 [`skills/exploom/SKILL.md`](skills/exploom/SKILL.md) 加入该工具的 Rules，或在项目目录运行 `exploom integrate --lang zh` 写入 `./AGENTS.md`，让 Agent 自动遵守实验登记与汇报规范。
+
+### 4. 可选 `AGENTS.md` 接入（串联自定义子智能体）
 
 插件默认开箱即用，不会静默修改你的全局配置。如果你使用了自定义 `AGENTS.md` / `CLAUDE.md` 子智能体编排，可运行一条幂等命令一键接入（使用 `<!-- exploom:start -->` 标记块，绝不覆盖原有内容，随时可 `--remove` 干净移除）：
 

@@ -36,6 +36,18 @@ It **complements** WandB / MLflow / TensorBoard: they track loss curves and char
 
 ---
 
+## Compatibility
+
+Exploom is built around a standard Python CLI + MCP Server — it is not locked to any single client and works across AI Coding Agents and plain terminals:
+
+| Mode | Supported Tools | Capabilities |
+| :--- | :--- | :--- |
+| **Native Plugin (Full)** | **ZCode**, **Claude Code** | All 5 MCP tools + `SKILL.md` + 5 Slash Commands + 2 automatic Hooks |
+| **Generic MCP + Rules** | **Cursor, Codex, Windsurf, Cline, Gemini CLI**, or any MCP-compatible agent | All 5 MCP tools via `exploom-mcp` (or `uvx`), plus collaboration rules via `exploom integrate` or `skills/exploom/SKILL.md` (without the 2 hooks) |
+| **Standalone CLI (No MCP)** | **Any Bash-capable agent**, restricted subagents, or **human terminal** | Full `exploom` / `exp` command suite with `--json` output on every subcommand |
+
+---
+
 ## Quick Start
 
 ### One-Line Agent Install (Recommended)
@@ -77,7 +89,24 @@ It automatically wires:
 - Slash commands: `/exp`, `/exp-resume <E0xx>`, `/exp-sync`, `/exp-rerun <E0xx>`, `/exp-collect`
 - Pure-stdlib hooks: `SessionStart` (~15ms read-only SQLite status card) and `PostToolUse(Bash)` (low-noise reminder for untracked remote background SSH jobs)
 
-### 3. Optional `AGENTS.md` Integration (Custom Subagents)
+### 3. Other MCP-Compatible Agents (Cursor, Codex, Windsurf, Cline, Gemini CLI, etc.)
+
+Add the following entry to your agent's MCP configuration file to enable all 5 MCP tools (if you installed `exploom-mcp` locally, you can also set `"command": "exploom-mcp"` with empty `"args"`):
+
+```json
+{
+  "mcpServers": {
+    "exploom": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/minghuaxu/exploom.git", "exploom-mcp"]
+    }
+  }
+}
+```
+
+> Optionally add [`skills/exploom/SKILL.md`](skills/exploom/SKILL.md) to your agent's rules or run `exploom integrate` in your project directory to add the handoff block to `./AGENTS.md`.
+
+### 4. Optional `AGENTS.md` Integration (Custom Subagents)
 
 Exploom works out of the box and never modifies your global agent config silently. If you orchestrate custom subagents in `AGENTS.md` / `CLAUDE.md`, run the idempotent CLI helper (uses `<!-- exploom:start -->` markers and supports `--remove`):
 
