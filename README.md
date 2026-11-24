@@ -4,125 +4,125 @@
 
 # Exploom
 
-**Local single-control-plane Experiment Lineage & Ops for AI Coding Agents.**
+**AI Coding Agent 时代的本地单一控制面实验指挥台（Experiment Lineage & Ops）。**
 
-[中文文档 (README_CN.md)](README_CN.md) · [Architecture & Design (DESIGN.md)](DESIGN.md)
+[English README](README_EN.md) · [架构设计文档 (DESIGN.md)](DESIGN.md)
 
-Exploom solves experiment amnesia, scattered multi-server SSH jobs, OOM/quota/network recovery, and `data prep -> fine-tuning -> error analysis -> next iteration` lineage tracking across multi-session workflows, `/side` branches, and main/subagent collaboration.
+Exploom 专为“单本地 Coding Agent 通过 SSH 控制多台远端 GPU 服务器 + 单项目多会话 / `/side` 分叉 + 主/子智能体协作”场景打造，解决实验失忆、跨机散落、OOM/额度/断网恢复困难，以及“数据处理 → 模型微调 → 错误分析 → 再迭代”的完整血缘追踪问题。
 
-It **complements** WandB / MLflow / TensorBoard: they track loss curves and charts; Exploom tracks **experiment lineage, multi-server state, failure attribution, and instant cross-session context restoration**.
-
----
-
-## Key Features
-
-- **Remote Zero-Install**: Zero daemons or packages on remote GPU boxes. Works over standard SSH + self-contained POSIX/Bash wrappers with zero Git repo pollution.
-- **SQLite WAL Single Control Plane**: Concurrent multi-session & subagent safe (`~/.exploom/registry.db`), paired with human-readable Markdown notes (`~/.exploom/notes/`) and code-drift patch snapshots (`~/.exploom/patches/`).
-- **Safe Approval Boundary**: MCP tools only perform local state ops and read-only SSH probes. Launch/rerun commands are returned to your Coding Agent's native Bash tool so normal approval prompts and your real SSH Agent / jump hosts apply.
-- **Auto Failure Classification & Stale Detection**: Distinguishes `failed_oom`, `failed_disk`, `failed_quota`, `failed_net`, `failed_code`, and `aborted`, flags silent hanging runs (`running (stale 2h)`), and never overwrites status when SSH is unreachable.
-- **Code Drift Guard**: Detects remote Git commit or dirty-diff drift before rerunning an experiment.
-- **7 Pluggable Runners**: `ssh-tmux` (default), `ssh-nohup`, `ssh-screen`, `ssh-slurm` (with `sacct` `OUT_OF_MEMORY`/`TIMEOUT`/`PREEMPTED` parsing), `ssh-docker` (shared mounted `meta_dir`), `local`, and `custom`.
-- **Single Repo, Multi-Agent Native**: Ships as an installable Python package (`exploom` CLI + `exploom-mcp` server) plus a thin ZCode / Claude Code Plugin layer (`SKILL.md`, 5 slash commands including `/exp-collect`, and ~15ms pure-stdlib hooks).
+它与 WandB / MLflow / TensorBoard **互补而非替代**：它们记录训练曲线与指标，`exploom` 管理**实验血缘、多机状态、失败归因与跨会话秒级上下文恢复**。
 
 ---
 
-## Quick Start
+## 核心特性
 
-### 1. Install (CLI + MCP)
+- **远端零侵入（Remote Zero-Install）**：远端服务器无需安装任何 Agent 或依赖，仅靠标准 SSH + 纯 POSIX/Bash 包装脚本落盘状态，绝不污染远端 Git 仓库。
+- **本地 SQLite WAL 单一控制面**：多会话与子智能体并发读写安全（`~/.exploom/registry.db`），搭配人类与 AI 共用的 Markdown 笔记（`~/.exploom/notes/`）及代码补丁快照（`~/.exploom/patches/`）。
+- **安全审批边界**：MCP 工具严格限制为“本地读写 + 只读 SSH”，所有远端启动和续跑命令都返回给宿主 Agent 的原生 Bash 工具执行，天然享受审批弹窗保护与本机真实 SSH Agent / 跳板机环境。
+- **失败自动归类与日志静默（Stale）告警**：自动识别 `failed_oom`、`failed_disk`、`failed_quota`、`failed_net`、`failed_code`、`aborted`；检测挂死任务（`running (stale 2h)`）；SSH 不可达时仅记 `sync_error` 绝不误改原状态。
+- **代码漂移保护**：续跑前自动比对远端 `(git_commit, diff_hash)`，代码发生变化时默认阻断，防止污染原实验。
+- **7 种可插拔执行器**：`ssh-tmux`（默认）、`ssh-nohup`、`ssh-screen`、`ssh-slurm`（支持 `sacct` 精准解析 `OUT_OF_MEMORY`/`TIMEOUT`/`PREEMPTED`）、`ssh-docker`（支持宿主机共享挂载 `meta_dir`）、`local`、`custom`。
+- **单仓四合一**：独立 Python 包（`exploom` CLI + `exploom-mcp`）+ ZCode / Claude Code Plugin 薄编排层（`SKILL.md`、5 个 Slash Commands 含 `/exp-collect`、2 个纯标准库 Hooks）。
+
+---
+
+## 快速开始
+
+### 1. 安装（CLI + MCP）
 
 ```bash
-# Install directly from GitHub via uv
+# 直接从 GitHub 使用 uv 安装
 uv tool install git+https://github.com/minghuaxu/exploom.git
-# Or install from local source (editable)
+# 或本地源码可编辑安装
 uv tool install -e .
 ```
 
-Zero-install MCP execution via `uvx`:
+也支持 `uvx` 免安装直接运行 MCP Server：
 
 ```bash
 uvx --from git+https://github.com/minghuaxu/exploom.git exploom-mcp
 ```
 
-### 2. Use as a ZCode / Claude Code Plugin
+### 2. 作为 ZCode / Claude Code 插件加载
 
-Add this repository as a local or GitHub marketplace source:
-- **ZCode**: **Plugin Marketplace → Add → Add Plugin Marketplace** → enter `https://github.com/minghuaxu/exploom` (or local repo directory) → install `exploom`.
-- **Claude Code**: `/plugin marketplace add minghuaxu/exploom` then `/plugin install exploom@exploom`.
+将本仓库作为本地目录或 GitHub Marketplace 源添加即可一键安装：
+- **ZCode**：**插件市场 → 添加 → 添加插件市场** → 填入 `https://github.com/minghuaxu/exploom`（或本地仓库目录）→ 安装 `exploom`。
+- **Claude Code**：执行 `/plugin marketplace add minghuaxu/exploom`，再执行 `/plugin install exploom@exploom`。
 
-It automatically wires:
-- `.zcode-plugin/plugin.json` & `.zcode-plugin/marketplace.json`
-- `.claude-plugin/plugin.json` & `.claude-plugin/marketplace.json`
-- `.mcp.json` (uses local `exploom-mcp`, falling back to `uvx --from git+https://github.com/minghuaxu/exploom.git exploom-mcp`)
-- `skills/exploom/SKILL.md` (<=60-line collaboration rules)
-- Slash commands: `/exp`, `/exp-resume <E0xx>`, `/exp-sync`, `/exp-rerun <E0xx>`, `/exp-collect`
-- Pure-stdlib hooks: `SessionStart` (~15ms read-only SQLite status card) and `PostToolUse(Bash)` (low-noise reminder for untracked remote background SSH jobs)
+加载后自动生效：
+- `.zcode-plugin/plugin.json` 与 `.zcode-plugin/marketplace.json`
+- `.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json`
+- `.mcp.json`（优先使用本地 `exploom-mcp`，未安装时自动回退 `uvx --from git+https://github.com/minghuaxu/exploom.git exploom-mcp`）
+- `skills/exploom/SKILL.md`（<=60 行触发器式铁律）
+- 5 个 Slash Commands：`/exp`、`/exp-resume <E0xx>`、`/exp-sync`、`/exp-rerun <E0xx>`、`/exp-collect`
+- 2 个纯标准库 Hooks：`SessionStart`（~15ms 只读 SQLite 注入态势卡片）与 `PostToolUse(Bash)`（低噪音检测未登记后台 SSH 任务）
 
-### 3. Optional `AGENTS.md` Integration (Custom Subagents)
+### 3. 可选 `AGENTS.md` 接入（串联自定义子智能体）
 
-Exploom works out of the box and never modifies your global agent config silently. If you orchestrate custom subagents in `AGENTS.md` / `CLAUDE.md`, run the idempotent CLI helper (uses `<!-- exploom:start -->` markers and supports `--remove`):
+插件默认开箱即用，不会静默修改你的全局配置。如果你使用了自定义 `AGENTS.md` / `CLAUDE.md` 子智能体编排，可运行一条幂等命令一键接入（使用 `<!-- exploom:start -->` 标记块，绝不覆盖原有内容，随时可 `--remove` 干净移除）：
 
 ```bash
-exploom integrate --zcode                # ~/.zcode/AGENTS.md
-exploom integrate --claude               # ~/.claude/CLAUDE.md
-exploom integrate                        # ./AGENTS.md in current project
-exploom integrate --zcode --remove       # cleanly remove the managed block
+exploom integrate --zcode --lang zh      # 写入 ~/.zcode/AGENTS.md
+exploom integrate --claude --lang zh     # 写入 ~/.claude/CLAUDE.md
+exploom integrate --lang zh              # 写入当前项目的 ./AGENTS.md
+exploom integrate --zcode --remove       # 一键干净移除
 ```
 
-Or add these 3 lines manually:
+或手动加入以下 3 行：
 
 ```markdown
-- Before launching remote/local training or dispatching a subagent, allocate an ID via `exp_plan` and include `[EXP_ID=E0xx]` in the task prompt.
-- Subagents receiving `[EXP_ID=E0xx]` must restore state via `exp_query(view="context", exp_id="E0xx")` (or `exploom show E0xx --json`), launch via `exp_attempt(action="start")`, and log conclusions via `exp_finding`.
-- Subagents report back in <=3 lines: `E0xx#<attempt> | status & metrics | finding ID`.
+- 提交远端/本地训练或派发子智能体前，先调 `exp_plan` 分配 ID，并在任务提示词开头写入 `[EXP_ID=E0xx]`。
+- 收到 `[EXP_ID=E0xx]` 的子智能体先调 `exp_query(view="context", exp_id="E0xx")`（无 MCP 时用 `exploom show E0xx --json`）还原上下文，通过 `exp_attempt(action="start")` 启动任务，并用 `exp_finding` 落盘结论。
+- 子智能体仅向主智能体回报 3 行精简摘要：`E0xx#<attempt> | 状态与核心指标/报错 | finding ID`。
 ```
 
 ---
 
-## 5 Core MCP Tools
+## 5 个核心 MCP 工具
 
-| Tool | Responsibility |
+| 工具 | 职责 |
 | :--- | :--- |
-| `exp_plan` | Create or update an experiment node (`parent_id`, `based_on_finding`, `tags`, `metrics`, `status_override`). |
-| `exp_attempt` | Register a run attempt (`start`: conflict check + returns `ssh_cmd` without executing), backfill historical/existing runs (`record`, no launch), or update status/metrics (`update`). |
-| `exp_finding` | Attach analysis scripts, bad-case diagnoses, decisions, or artifacts and append to the Markdown note. |
-| `exp_query` | Fast local read-only SQLite queries (`tree`, `list`, `context`, `resources`). Zero SSH. |
-| `exp_ops` | The only tool that runs read-only SSH: `sync` (concurrent batch probe), `tail_log` (<=200 lines), `prepare_rerun` (drift check + returns `ssh_cmd`). |
+| `exp_plan` | 创建/更新实验血缘节点（`parent_id`、`based_on_finding`、`tags`、`metrics`、`status_override`）。 |
+| `exp_attempt` | 登记执行尝试（`start`：防撞车并返回 `ssh_cmd`，不直接执行）、补录历史/已在运行尝试（`record`，不触发启动）或更新状态与指标（`update`）。 |
+| `exp_finding` | 挂接分析脚本、Bad Case 诊断、决策与产物路径，并自动追加到实验 Markdown 笔记。 |
+| `exp_query` | 纯本地毫秒级只读查询（`tree` / `list` / `context` / `resources`），零 SSH。 |
+| `exp_ops` | 唯一触发只读 SSH 的工具：`sync`（并发批量探活）、`tail_log`（<=200 行）、`prepare_rerun`（漂移检测 + 返回 `ssh_cmd`）。 |
 
-## Human CLI (`exploom` / `exp`)
+## 人类终端 CLI (`exploom` / `exp`)
 
-Every command supports `--json` (also usable as a fallback for subagents without MCP access):
+所有命令均支持 `--json`（同时作为无 MCP 权限子智能体的兜底入口）：
 
 ```bash
-exploom init [project]                     # Bind current directory to a project
-exploom plan -t "sft_v1" -H "lr=2e-5"      # Create an experiment node
+exploom init [project]                     # 将当前目录绑定到项目名
+exploom plan -t "sft_v1" -H "lr=2e-5"      # 创建实验节点
 exploom attempt start E001 -s gpu-1 -w /work -r gpu:0,1 -c "python train.py"
-exploom tree [-a] [--all]                  # Rich colored lineage tree
+exploom tree [-a] [--all]                  # Rich 彩色血缘树
 exploom ls [--failed] [--running] [--server gpu-1]
-exploom show E001                          # Full context (lineage, attempts, findings, patches)
-exploom edit E001                          # Open Markdown note in $EDITOR
-exploom ps                                 # Active server/GPU/workdir matrix
-exploom sync [E001]                        # Concurrent read-only SSH probe
-exploom log E001 -n 80                     # Tail remote main log
-exploom rerun E001 [--fresh] [--force]     # Drift check + launch resume_cmd
-exploom integrate [--zcode|--claude]       # Idempotently add/remove AGENTS.md handoff block
+exploom show E001                          # 查看完整上下文（血缘、尝试、Findings、patch 文件）
+exploom edit E001                          # 用 $EDITOR 打开 Markdown 笔记
+exploom ps                                 # 查看所有服务器/GPU/目录占用矩阵
+exploom sync [E001]                        # 并发只读 SSH 探活
+exploom log E001 -n 80                     # 拉取远端主日志尾部
+exploom rerun E001 [--fresh] [--force]     # 漂移检查后直接续跑
+exploom integrate [--zcode|--claude]       # 一键幂等接入/移除 AGENTS.md 子智能体接力块
 ```
 
-## Pluggable Runners
+## 可插拔执行器
 
-| Runner | `runner_ref` | Probing Mechanism |
+| Runner | `runner_ref` | 探活机制 |
 | :--- | :--- | :--- |
-| `ssh-tmux` (default) | `exp_<proj>_<id>_<n>` | `tmux has-session` + `exit.json` + log mtime |
-| `ssh-nohup` | PID (`$META_DIR/pid`) | `kill -0` + `exit.json` + log mtime |
-| `ssh-screen` | `exp_<proj>_<id>_<n>` | `screen -ls` + `exit.json` + log mtime |
-| `ssh-slurm` | Slurm `JobID` | `squeue -j` + `sacct -o State,ExitCode` (`OUT_OF_MEMORY`/`TIMEOUT`/`PREEMPTED`/`CANCELLED`) |
-| `ssh-docker` | `<container>:<ref>` | Host shared `meta_dir` + `docker inspect` / `docker exec kill -0` |
-| `local` | Local PID | Direct local check, no SSH |
-| `custom` | Custom ref | `exit.json` / log mtime or manual `exp_attempt(update)` |
+| `ssh-tmux`（默认） | `exp_<proj>_<id>_<n>` | `tmux has-session` + `exit.json` + 日志 mtime |
+| `ssh-nohup` | PID（`$META_DIR/pid`） | `kill -0` + `exit.json` + 日志 mtime |
+| `ssh-screen` | `exp_<proj>_<id>_<n>` | `screen -ls` + `exit.json` + 日志 mtime |
+| `ssh-slurm` | Slurm `JobID` | `squeue -j` + `sacct -o State,ExitCode`（精准解析 `OUT_OF_MEMORY`/`TIMEOUT`/`PREEMPTED`/`CANCELLED`） |
+| `ssh-docker` | `<container>:<ref>` | 宿主机读共享挂载 `meta_dir` + `docker inspect` / `docker exec kill -0` |
+| `local` | 本地 PID | 本地直接检测，无 SSH |
+| `custom` | 自定义标识 | `exit.json` / 日志 mtime 或手动 `exp_attempt(update)` |
 
-## Configuration
+## 配置文件
 
-Copy [`examples/config.toml`](examples/config.toml) to `~/.exploom/config.toml` to customize `stale_threshold_minutes`, `ssh_connect_timeout`, custom failure regexes, or per-server Docker/Slurm `meta_dir` mounts.
+将 [`examples/config.toml`](examples/config.toml) 复制到 `~/.exploom/config.toml`，即可自定义 `stale_threshold_minutes`、`ssh_connect_timeout`、自定义失败正则，以及 Docker / Slurm 共享 `meta_dir` 挂载路径。
 
-## License
+## 许可证
 
 [MIT](LICENSE)

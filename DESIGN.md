@@ -96,7 +96,7 @@ exploom/
 ├── tests/
 ├── DESIGN.md
 ├── README.md
-└── README_CN.md
+└── README_EN.md
 ```
 
 ---
