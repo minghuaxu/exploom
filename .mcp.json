@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "exploom": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "if command -v exploom-mcp >/dev/null 2>&1; then exec exploom-mcp; else exec uvx --from git+https://github.com/minghuaxu/exploom.git exploom-mcp; fi"
+      ]
+    }
+  }
+}

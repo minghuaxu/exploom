@@ -1,0 +1,20 @@
+{
+  "name": "exploom",
+  "version": "0.1.4",
+  "description": "Local single-control-plane Experiment Lineage & Ops for AI Coding Agents (multi-server SSH, multi-session /side branching, subagent handoff, failure classification, and zero-install remote wrappers).",
+  "author": {
+    "name": "Exploom"
+  },
+  "keywords": [
+    "experiments",
+    "mlops",
+    "lineage",
+    "ssh",
+    "tmux",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

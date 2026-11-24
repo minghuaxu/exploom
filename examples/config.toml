@@ -1,0 +1,37 @@
+# Example Exploom configuration
+# Copy to ~/.exploom/config.toml (or $EXPLOOM_HOME/config.toml)
+
+# Minutes of log silence before a running attempt is flagged as stale
+stale_threshold_minutes = 45
+
+# SSH ConnectTimeout (seconds) for read-only sync / drift / tail_log probes
+ssh_connect_timeout = 5
+
+# Maximum size (bytes) of git dirty.patch snapshots pulled from remote hosts (default 200KB)
+max_patch_bytes = 204800
+
+# Default runner for non-local servers:
+# ssh-tmux | ssh-nohup | ssh-screen | ssh-slurm | ssh-docker | custom
+default_runner = "ssh-tmux"
+
+# Custom failure classification rules (evaluated BEFORE built-in rules)
+[[failure_rules]]
+name = "custom_vllm_oom"
+status = "failed_oom"
+pattern = "KV cache.*exhausted|torch\\.OutOfMemoryError"
+
+[[failure_rules]]
+name = "custom_api_billing"
+status = "failed_quota"
+pattern = "billing_hard_limit_reached|credits_exhausted"
+
+# Per-server overrides (especially useful for Docker shared mounts)
+[servers.gpu-docker-1]
+# Host path shared with the container at the same mount point
+meta_dir = "/data/.exploom_meta"
+# Optional default container name for runner="ssh-docker"
+docker_container = "trainer_box"
+
+[servers.slurm-cluster]
+# Use shared filesystem visible to both login node and compute nodes
+meta_dir = "/scratch/$USER/.exploom_meta"
