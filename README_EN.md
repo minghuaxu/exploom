@@ -26,6 +26,16 @@ It **complements** WandB / MLflow / TensorBoard: they track loss curves and char
 
 ---
 
+## Screenshots
+
+| Lineage Tree & Multi-Server GPU Matrix (`exploom tree` + `exploom ps`) | Failure Attribution, Patch & Findings (`exploom show E003`) |
+| :---: | :---: |
+| ![CLI Lineage Tree & Resources](assets/demo-cli-tree.png) | ![CLI Experiment Context](assets/demo-cli-show.png) |
+| **Agent Experiment Overview (`/exp`)** | **Instant Cross-Session Context Restoration (`/exp-resume E003`)** |
+| ![Agent /exp Overview](assets/demo-agent-exp.png) | ![Agent /exp-resume Context](assets/demo-agent-resume.png) |
+
+---
+
 ## Quick Start
 
 ### 1. Install (CLI + MCP)

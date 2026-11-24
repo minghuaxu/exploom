@@ -26,6 +26,16 @@ Exploom 专为“单本地 Coding Agent 通过 SSH 控制多台远端 GPU 服务
 
 ---
 
+## 实景演示
+
+| 终端血缘树与多机 GPU 占用（`exploom tree` + `exploom ps`） | 失败归因、补丁与 Findings 详情（`exploom show E003`） |
+| :---: | :---: |
+| ![CLI Lineage Tree & Resources](assets/demo-cli-tree.png) | ![CLI Experiment Context](assets/demo-cli-show.png) |
+| **Agent 一键实验全景态势（`/exp`）** | **跨会话零 SSH 秒级恢复上下文（`/exp-resume E003`）** |
+| ![Agent /exp Overview](assets/demo-agent-exp.png) | ![Agent /exp-resume Context](assets/demo-agent-resume.png) |
+
+---
+
 ## 快速开始
 
 ### 1. 安装（CLI + MCP）
