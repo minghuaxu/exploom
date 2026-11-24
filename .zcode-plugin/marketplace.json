@@ -1,6 +1,6 @@
 {
   "name": "exploom",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local single-control-plane Experiment Lineage & Ops plugin for AI Coding Agents.",
   "owner": {
     "name": "minghuaxu"
@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "exploom",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "displayName": "Exploom",
       "displayName_i18n": {
         "zh-CN": "Exploom 实验指挥台"
@@ -18,7 +18,7 @@
         "zh-CN": "AI Coding Agent 本地单一控制面实验血缘与多机 SSH 运维：血缘树、失败归因、漂移保护、跨会话收集与子智能体接力。"
       },
       "category": "developer-tools",
-      "icon": "https://raw.githubusercontent.com/minghuaxu/exploom/main/assets/icon.png",
+      "icon": "https://cdn.jsdelivr.net/gh/minghuaxu/exploom@main/assets/icon.png",
       "source": "./"
     }
   ]
