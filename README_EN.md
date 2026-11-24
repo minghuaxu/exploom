@@ -38,7 +38,17 @@ It **complements** WandB / MLflow / TensorBoard: they track loss curves and char
 
 ## Quick Start
 
-### 1. Install (CLI + MCP)
+### One-Line Agent Install (Recommended)
+
+Just paste this into Claude Code, ZCode, or any Coding Agent:
+
+```text
+Install and configure Exploom (https://github.com/minghuaxu/exploom) for me: follow its README to install the CLI and MCP server via `uv tool install git+https://github.com/minghuaxu/exploom.git` (or `pip` if `uv` is unavailable), wire up the plugin/MCP for my current agent, and verify `exploom --help` works. Ask before modifying AGENTS.md/CLAUDE.md.
+```
+
+---
+
+### 1. Manual Install (CLI + MCP)
 
 ```bash
 # Install directly from GitHub via uv

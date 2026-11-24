@@ -38,7 +38,17 @@ Exploom 专为“单本地 Coding Agent 通过 SSH 控制多台远端 GPU 服务
 
 ## 快速开始
 
-### 1. 安装（CLI + MCP）
+### 一句话让 AI Agent 自动安装（推荐）
+
+直接把下面这句话发给你的 Claude Code / ZCode / 任意 Coding Agent：
+
+```text
+帮我安装并配置 Exploom（https://github.com/minghuaxu/exploom）：参考仓库 README，用 uv tool install git+https://github.com/minghuaxu/exploom.git（无 uv 则用 pip）安装 CLI 与 MCP Server，按我当前使用的 Agent 完成插件/MCP 接入并验证 exploom --help 可用；如需修改 AGENTS.md/CLAUDE.md 请先征求我同意。
+```
+
+---
+
+### 1. 手动安装（CLI + MCP）
 
 ```bash
 # 直接从 GitHub 使用 uv 安装
