@@ -15,6 +15,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
 
+from exploom.classify import parse_iso_timestamp
 from exploom.integrate import apply_integration, resolve_integration_target
 from exploom.service import ExploomService
 
@@ -119,6 +120,53 @@ def _format_metrics_inline(metrics: dict[str, Any]) -> str:
     if not metrics:
         return ""
     return " ".join(f"{k}={v}" for k, v in metrics.items())
+
+
+def _format_short_ts(value: str | None) -> str:
+    """Format an ISO8601 UTC timestamp in local time as 'YYYY-MM-DD HH:MM'."""
+    if not value:
+        return "-"
+    dt = parse_iso_timestamp(value)
+    if dt is None:
+        return value
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def _format_timeline_span(
+    started_at: str | None,
+    ended_at: str | None,
+    duration_label: str | None = None,
+    *,
+    is_running: bool = False,
+) -> str:
+    """Format a compact local-time span like '11-20 18:00→20:30 (2h30m)'."""
+    if not started_at:
+        return "-"
+    start_dt = parse_iso_timestamp(started_at)
+    if start_dt is None:
+        return started_at
+    local_start = start_dt.astimezone()
+    s_str = local_start.strftime("%m-%d %H:%M")
+
+    if ended_at:
+        end_dt = parse_iso_timestamp(ended_at)
+        if end_dt is not None:
+            local_end = end_dt.astimezone()
+            if local_end.date() == local_start.date():
+                e_str = local_end.strftime("%H:%M")
+            else:
+                e_str = local_end.strftime("%m-%d %H:%M")
+            span = f"{s_str}→{e_str}"
+        else:
+            span = f"{s_str}→{ended_at}"
+    elif is_running:
+        span = f"{s_str}→…"
+    else:
+        span = s_str
+
+    if duration_label:
+        span += f" ({duration_label})"
+    return span
 
 
 # ----------------------------------------------------------------------
@@ -262,10 +310,16 @@ def cmd_attempt_start(
 def cmd_attempt_update(
     exp_id: str = typer.Argument(..., help="Experiment ID (e.g. E001)."),
     attempt_no: Optional[int] = typer.Option(None, "--attempt", "-n", help="Attempt number (default: latest)."),
+    server: Optional[str] = typer.Option(None, "--server", "-s", help="Update SSH host alias or 'local'."),
+    workdir: Optional[str] = typer.Option(None, "--workdir", "-w", help="Update working directory."),
+    resource: Optional[str] = typer.Option(None, "--resource", "-r", help="Update resource spec."),
+    runner: Optional[str] = typer.Option(None, "--runner", help="Update runner type."),
     status: Optional[str] = typer.Option(None, "--status", help="Explicit attempt status."),
     exit_code: Optional[int] = typer.Option(None, "--exit-code", help="Process exit code (auto-classifies if status omitted)."),
     error: Optional[str] = typer.Option(None, "--error", help="Short error summary."),
     metric: Optional[list[str]] = typer.Option(None, "--metric", "-m", help="Metric key=value (repeatable)."),
+    started_at: Optional[str] = typer.Option(None, "--started-at", help="Override start time (ISO8601)."),
+    ended_at: Optional[str] = typer.Option(None, "--ended-at", help="Override end time (ISO8601)."),
     log_mtime: Optional[str] = typer.Option(None, "--log-mtime", help="Log mtime ISO8601 timestamp."),
     sync_error: Optional[str] = typer.Option(None, "--sync-error", help="Sync error tag (preserves status)."),
     project: Optional[str] = typer.Option(None, "--project", "-P", help="Explicit project slug."),
@@ -278,10 +332,16 @@ def cmd_attempt_update(
         res = svc.update_attempt(
             exp_id=exp_id,
             attempt_no=attempt_no,
+            server=server,
+            workdir=workdir,
+            resource=resource,
+            runner=runner,
             status=status,
             exit_code=exit_code,
             error_summary=error,
             metrics=metrics_dict,
+            started_at=started_at,
+            ended_at=ended_at,
             log_mtime=log_mtime,
             sync_error=sync_error,
             project=project,
@@ -425,6 +485,7 @@ def cmd_ls(
     status: Optional[str] = typer.Option(None, "--status", help="Filter by exact status."),
     server: Optional[str] = typer.Option(None, "--server", help="Filter by server."),
     tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag."),
+    sort_by: str = typer.Option("created", "--sort", help="Sort order: created | started | ended."),
     all_projects: bool = typer.Option(False, "--all", help="List across all projects."),
     project: Optional[str] = typer.Option(None, "--project", "-P", help="Explicit project slug."),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
@@ -439,6 +500,7 @@ def cmd_ls(
             running_only=running,
             server=server,
             tag=tag,
+            sort_by=sort_by,
             all_projects=all_projects,
         )
     except Exception as exc:
@@ -452,10 +514,11 @@ def cmd_ls(
     table = Table(show_header=True, header_style="bold")
     if all_projects:
         table.add_column("Project", style="cyan")
-    table.add_column("ID", style="bold")
+    table.add_column("ID", style="bold", no_wrap=True)
     table.add_column("Title")
     table.add_column("Status")
-    table.add_column("Server")
+    table.add_column("Server", no_wrap=True)
+    table.add_column("Timeline", style="dim")
     table.add_column("Metrics", style="green")
     table.add_column("Tags", style="blue")
 
@@ -477,6 +540,12 @@ def cmd_ls(
                     sync_error=card.get("sync_error"),
                 ),
                 card.get("server") or "-",
+                _format_timeline_span(
+                    card.get("started_at"),
+                    card.get("ended_at"),
+                    card.get("duration_label"),
+                    is_running=(card["status"] == "running"),
+                ),
                 _format_metrics_inline(card.get("metrics") or {}) or "-",
                 ", ".join(card.get("tags") or []) or "-",
             ]
@@ -513,7 +582,9 @@ def cmd_show(
         f"[bold]{exp['id']}[/bold]: {exp['title']}  "
         f"{_format_status_badge(exp['status'], is_stale=exp['is_stale'])}"
     )
-    meta_lines = [f"Project: [cyan]{ctx['project']}[/cyan] | Note: {exp['note_path']}"]
+    meta_lines = [
+        f"Project: [cyan]{ctx['project']}[/cyan] | Created: {_format_short_ts(exp.get('created_at'))} | Note: {exp['note_path']}"
+    ]
     if ctx["ancestors"]:
         chain = " -> ".join(f"{a['id']} ({a['title']})" for a in ctx["ancestors"])
         meta_lines.append(f"Lineage: {chain} -> [bold]{exp['id']}[/bold]")
@@ -530,11 +601,12 @@ def cmd_show(
 
     if ctx["recent_attempts"]:
         att_table = Table(title=f"Recent Attempts ({len(ctx['recent_attempts'])}/{ctx['total_attempts']})")
-        att_table.add_column("#")
-        att_table.add_column("Server")
+        att_table.add_column("#", no_wrap=True)
+        att_table.add_column("Server", no_wrap=True)
         att_table.add_column("Workdir")
         att_table.add_column("Resource")
         att_table.add_column("Status")
+        att_table.add_column("Timeline", style="dim")
         att_table.add_column("Error")
         for att in ctx["recent_attempts"]:
             att_table.add_row(
@@ -543,6 +615,12 @@ def cmd_show(
                 att["workdir"],
                 att.get("resource") or "-",
                 _format_status_badge(att["status"], sync_error=att.get("sync_error")),
+                _format_timeline_span(
+                    att.get("started_at"),
+                    att.get("ended_at"),
+                    att.get("duration_label"),
+                    is_running=(att["status"] == "running"),
+                ),
                 att.get("error_summary") or "-",
             )
         console.print(att_table)
@@ -608,12 +686,13 @@ def cmd_ps(
         return
 
     table = Table(title="Running Experiments & Resources", show_header=True, header_style="bold")
-    table.add_column("Server", style="cyan")
+    table.add_column("Server", style="cyan", no_wrap=True)
     table.add_column("Resource", style="yellow")
     table.add_column("Exp", style="bold")
     table.add_column("Title")
     table.add_column("Workdir")
     table.add_column("Runner")
+    table.add_column("Started", style="dim")
     table.add_column("State")
 
     for r in rows:
@@ -630,6 +709,12 @@ def cmd_ps(
             r["title"],
             r["workdir"],
             r["runner"],
+            _format_timeline_span(
+                r.get("started_at"),
+                None,
+                r.get("duration_label"),
+                is_running=False,
+            ),
             state,
         )
     console.print(table)

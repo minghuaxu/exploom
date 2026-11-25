@@ -1,6 +1,6 @@
 {
   "name": "exploom",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local single-control-plane Experiment Lineage & Ops for AI Coding Agents (multi-server SSH, multi-session /side branching, subagent handoff, failure classification, and zero-install remote wrappers).",
   "author": {
     "name": "Exploom"

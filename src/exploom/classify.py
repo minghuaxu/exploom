@@ -199,3 +199,42 @@ def format_duration_minutes(minutes: int) -> str:
         return f"{hours}h"
     days = hours // 24
     return f"{days}d"
+
+
+def format_duration_seconds(seconds: int | float) -> str:
+    """Format a duration in seconds into a compact human string like '45s', '12m', '2h15m', '1d3h'."""
+    total = max(0, int(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, _ = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, rem_m = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h{rem_m}m" if rem_m else f"{hours}h"
+    days, rem_h = divmod(hours, 24)
+    return f"{days}d{rem_h}h" if rem_h else f"{days}d"
+
+
+def compute_duration_seconds(
+    started_at: str | None,
+    ended_at: str | None,
+    *,
+    is_running: bool = False,
+    now: datetime | None = None,
+) -> int | None:
+    """Compute attempt duration in seconds from started_at to ended_at (or now if running)."""
+    start_dt = parse_iso_timestamp(started_at)
+    if start_dt is None:
+        return None
+    if ended_at:
+        end_dt = parse_iso_timestamp(ended_at)
+        if end_dt is None:
+            return None
+    elif is_running:
+        end_dt = now or datetime.now(timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+    else:
+        return None
+    return max(0, int((end_dt - start_dt).total_seconds()))

@@ -185,6 +185,8 @@ def create_mcp_server(service: ExploomService | None = None) -> _BaseMCPServer:
         exit_code: int | None = None,
         error_summary: str | None = None,
         metrics: dict[str, Any] | None = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
         project: str | None = None,
     ) -> dict[str, Any]:
         svc = _get_service()
@@ -223,6 +225,8 @@ def create_mcp_server(service: ExploomService | None = None) -> _BaseMCPServer:
                 exit_code=exit_code,
                 error_summary=error_summary,
                 metrics=metrics,
+                started_at=started_at,
+                ended_at=ended_at,
                 project=project,
             )
         if action == "update":
@@ -230,11 +234,20 @@ def create_mcp_server(service: ExploomService | None = None) -> _BaseMCPServer:
                 svc.update_attempt,
                 exp_id=exp_id,
                 attempt_no=attempt_no,
+                server=server,
+                workdir=workdir,
+                resource=resource,
+                run_cmd=run_cmd,
+                resume_cmd=resume_cmd,
+                runner=runner,
                 status=status,
                 exit_code=exit_code,
                 error_summary=error_summary,
                 metrics=metrics,
                 runner_ref=runner_ref,
+                log_path=log_path,
+                started_at=started_at,
+                ended_at=ended_at,
                 project=project,
             )
         raise ToolError(f"Invalid action '{action}': expected 'start', 'record', or 'update'")
@@ -285,6 +298,7 @@ def create_mcp_server(service: ExploomService | None = None) -> _BaseMCPServer:
         status_filter: str | None = None,
         server: str | None = None,
         tag: str | None = None,
+        sort_by: Literal["created", "started", "ended"] = "created",
         include_findings: bool = False,
         all_projects: bool = False,
         project: str | None = None,
@@ -322,6 +336,7 @@ def create_mcp_server(service: ExploomService | None = None) -> _BaseMCPServer:
                     status_filter=status_filter,
                     server=server,
                     tag=tag,
+                    sort_by=sort_by,
                     all_projects=all_projects,
                 )
             except (ValueError, KeyError) as exc:

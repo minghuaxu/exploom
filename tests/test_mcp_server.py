@@ -327,12 +327,16 @@ def test_mcp_record_attempt_backfill(tmp_path: Path) -> None:
             "status": "done",
             "exit_code": 0,
             "metrics": {"val_loss": 0.42},
+            "started_at": "2026-11-18T01:00:00Z",
+            "ended_at": "2026-11-18T03:30:00Z",
         },
     )
     assert recorded["attempt_no"] == 1
     assert recorded["status"] == "done"
     assert recorded["runner"] == "ssh-tmux"
     assert recorded["runner_ref"] == "train_nanote_v1"
+    assert recorded["started_at"] == "2026-11-18T01:00:00Z"
+    assert recorded["ended_at"] == "2026-11-18T03:30:00Z"
     assert "ssh_cmd" not in recorded
     assert "wrapped_cmd" not in recorded
 
@@ -343,7 +347,10 @@ def test_mcp_record_attempt_backfill(tmp_path: Path) -> None:
     )
     assert ctx["experiment"]["status"] == "done"
     assert ctx["experiment"]["metrics"]["val_loss"] == 0.42
-    assert ctx["recent_attempts"][0]["ended_at"] is not None
+    assert ctx["recent_attempts"][0]["started_at"] == "2026-11-18T01:00:00Z"
+    assert ctx["recent_attempts"][0]["ended_at"] == "2026-11-18T03:30:00Z"
+    assert ctx["recent_attempts"][0]["duration_seconds"] == 9000
+    assert ctx["recent_attempts"][0]["duration_label"] == "2h30m"
 
 
 def test_mcp_upward_reparent_and_cycle_guard(tmp_path: Path) -> None:
@@ -404,5 +411,127 @@ def test_mcp_based_on_finding_normalizes_verbose_label(tmp_path: Path) -> None:
             "based_on_finding": f"{f1['finding_id']}: high variance in first random draw",
         },
     )
-    ctx = _call_tool_sync(server, "exp_query", {"view": "context", "project": "p1", "exp_id": e2["exp_id"]})
+    ctx = _call_tool_sync(
+        server, "exp_query", {"view": "context", "project": "p1", "exp_id": e2["exp_id"]}
+    )
     assert ctx["experiment"]["based_on_finding"] == f1["finding_id"]
+
+
+def test_mcp_hard_deduplication_guards(tmp_path: Path) -> None:
+    svc = ExploomService(home_dir=tmp_path / ".exploom")
+    server = create_mcp_server(service=svc)
+
+    # 1. Duplicate experiment title is blocked
+    e1 = _call_tool_sync(
+        server, "exp_plan", {"action": "create", "project": "p1", "title": "Track D: 5-seed"}
+    )
+    with pytest.raises(Exception, match="Duplicate experiment title"):
+        _call_tool_sync(
+            server,
+            "exp_plan",
+            {"action": "create", "project": "p1", "title": "  track d:   5-seed  "},
+        )
+
+    # 2. Same-experiment record_attempt is idempotent on runner_ref
+    a1 = _call_tool_sync(
+        server,
+        "exp_attempt",
+        {
+            "action": "record",
+            "project": "p1",
+            "exp_id": e1["exp_id"],
+            "server": "cshpc",
+            "workdir": "/work",
+            "run_cmd": "sbatch run.sh",
+            "runner": "ssh-slurm",
+            "runner_ref": "14089",
+            "status": "done",
+        },
+    )
+    assert a1["attempt_no"] == 1
+    assert a1.get("deduplicated") is None
+
+    a1_dup = _call_tool_sync(
+        server,
+        "exp_attempt",
+        {
+            "action": "record",
+            "project": "p1",
+            "exp_id": e1["exp_id"],
+            "server": "CSHPC",
+            "workdir": "/work",
+            "run_cmd": "sbatch run.sh",
+            "runner": "ssh-slurm",
+            "runner_ref": "14089",
+            "status": "done",
+        },
+    )
+    assert a1_dup["attempt_no"] == 1
+    assert a1_dup["deduplicated"] is True
+
+    # 3. Cross-experiment runner_ref collision is blocked
+    e2 = _call_tool_sync(
+        server, "exp_plan", {"action": "create", "project": "p1", "title": "Track D copy"}
+    )
+    with pytest.raises(Exception, match="already recorded under 'E001#1'"):
+        _call_tool_sync(
+            server,
+            "exp_attempt",
+            {
+                "action": "record",
+                "project": "p1",
+                "exp_id": e2["exp_id"],
+                "server": "cshpc",
+                "workdir": "/work",
+                "run_cmd": "sbatch run.sh",
+                "runner": "ssh-slurm",
+                "runner_ref": "14089",
+                "status": "done",
+            },
+        )
+
+    # 4. Duplicate finding is idempotent and does not double-append note
+    f1 = _call_tool_sync(
+        server,
+        "exp_finding",
+        {
+            "project": "p1",
+            "exp_id": e1["exp_id"],
+            "kind": "analysis",
+            "summary": "D3 reached 0.5838 across 5 seeds",
+        },
+    )
+    assert f1["finding_id"] == "E001-F1"
+    f1_dup = _call_tool_sync(
+        server,
+        "exp_finding",
+        {
+            "project": "p1",
+            "exp_id": e1["exp_id"],
+            "kind": "analysis",
+            "summary": "  d3 reached   0.5838 across 5 seeds ",
+        },
+    )
+    assert f1_dup["finding_id"] == "E001-F1"
+    assert f1_dup["deduplicated"] is True
+    ctx = _call_tool_sync(
+        server, "exp_query", {"view": "context", "project": "p1", "exp_id": e1["exp_id"]}
+    )
+    assert len(ctx["findings"]) == 1
+    assert ctx["note"].count("E001-F1") == 1
+
+    # 5. update_attempt can fix server/resource/runner metadata
+    upd = _call_tool_sync(
+        server,
+        "exp_attempt",
+        {
+            "action": "update",
+            "project": "p1",
+            "exp_id": e1["exp_id"],
+            "attempt_no": 1,
+            "server": "CS_HPC",
+            "resource": "gpu:1",
+        },
+    )
+    assert upd["server"] == "CS_HPC"
+    assert upd["resource"] == "gpu:1"

@@ -431,6 +431,8 @@ class Database:
         runner: str = "ssh-tmux",
         log_path: str | None = None,
         status: str = "running",
+        started_at: str | None = None,
+        ended_at: str | None = None,
         git_commit: str | None = None,
         git_branch: str | None = None,
         diff_hash: str | None = None,
@@ -438,6 +440,7 @@ class Database:
     ) -> dict[str, Any]:
         """Atomically allocate attempt_no and insert a new attempt."""
         now = utc_now_iso()
+        effective_started_at = started_at or now
         with self.write_tx() as conn:
             exp_row = conn.execute(
                 "SELECT id FROM experiments WHERE project = ? AND id = ?",
@@ -467,7 +470,7 @@ class Database:
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, NULL, NULL, '{}',
-                    NULL, ?, NULL, NULL, NULL
+                    NULL, ?, ?, NULL, NULL
                 )
                 """,
                 (
@@ -488,7 +491,8 @@ class Database:
                     diff_hash,
                     patch_path,
                     status,
-                    now,
+                    effective_started_at,
+                    ended_at,
                 ),
             )
             conn.execute(
@@ -507,6 +511,12 @@ class Database:
         project: str,
         exp_id: str,
         attempt_no: int,
+        server: str | None = None,
+        workdir: str | None = None,
+        resource: str | None = None,
+        run_cmd: str | None = None,
+        resume_cmd: str | None = None,
+        runner: str | None = None,
         status: str | None = None,
         exit_code: int | None = None,
         error_summary: str | None = None,
@@ -514,6 +524,7 @@ class Database:
         runner_ref: str | None = None,
         log_path: str | None = None,
         log_mtime: str | None = None,
+        started_at: str | None = None,
         ended_at: str | None = None,
         last_synced_at: str | None = None,
         sync_error: str | None = None,
@@ -534,6 +545,12 @@ class Database:
                 return None
 
             existing = self._deserialize_attempt(row)
+            new_server = server.strip() if server is not None and server.strip() else existing["server"]
+            new_workdir = workdir if workdir is not None else existing["workdir"]
+            new_resource = resource if resource is not None else existing["resource"]
+            new_run_cmd = run_cmd if run_cmd is not None else existing["run_cmd"]
+            new_resume_cmd = resume_cmd if resume_cmd is not None else existing["resume_cmd"]
+            new_runner = runner if runner is not None else existing["runner"]
             new_status = status if status is not None else existing["status"]
             new_exit = exit_code if exit_code is not None else existing["exit_code"]
             new_err = error_summary if error_summary is not None else existing["error_summary"]
@@ -543,6 +560,7 @@ class Database:
             new_runner_ref = runner_ref if runner_ref is not None else existing["runner_ref"]
             new_log_path = log_path if log_path is not None else existing["log_path"]
             new_log_mtime = log_mtime if log_mtime is not None else existing["log_mtime"]
+            new_started_at = started_at if started_at is not None else existing["started_at"]
             new_ended_at = ended_at if ended_at is not None else existing["ended_at"]
             if new_ended_at is None and new_status != "running":
                 new_ended_at = now
@@ -561,13 +579,20 @@ class Database:
             conn.execute(
                 """
                 UPDATE attempts
-                SET status = ?, exit_code = ?, error_summary = ?, metrics_json = ?,
-                    runner_ref = ?, log_path = ?, log_mtime = ?, ended_at = ?,
+                SET server = ?, workdir = ?, resource = ?, run_cmd = ?, resume_cmd = ?, runner = ?,
+                    status = ?, exit_code = ?, error_summary = ?, metrics_json = ?,
+                    runner_ref = ?, log_path = ?, log_mtime = ?, started_at = ?, ended_at = ?,
                     last_synced_at = ?, sync_error = ?, git_commit = ?, git_branch = ?,
                     diff_hash = ?, patch_path = ?
                 WHERE project = ? AND exp_id = ? AND attempt_no = ?
                 """,
                 (
+                    new_server,
+                    new_workdir,
+                    new_resource,
+                    new_run_cmd,
+                    new_resume_cmd,
+                    new_runner,
                     new_status,
                     new_exit,
                     new_err,
@@ -575,6 +600,7 @@ class Database:
                     new_runner_ref,
                     new_log_path,
                     new_log_mtime,
+                    new_started_at,
                     new_ended_at,
                     new_synced,
                     new_sync_err,

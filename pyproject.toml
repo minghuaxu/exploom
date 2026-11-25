@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "exploom"
-version = "0.1.5"
+version = "0.1.6"
 description = "Local single-control-plane Experiment Lineage & Ops for AI Coding Agents"
 readme = "README.md"
 license = { text = "MIT" }

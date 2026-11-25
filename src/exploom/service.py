@@ -15,7 +15,9 @@ from exploom.classify import (
     FINDING_KINDS,
     check_stale,
     classify_result,
+    compute_duration_seconds,
     format_duration_minutes,
+    format_duration_seconds,
     truncate_summary,
 )
 from exploom.config import ExploomConfig, load_config
@@ -38,6 +40,18 @@ from exploom.ssh import (
     probe_attempts_concurrent,
     run_shell_on_host,
 )
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for deduplication comparisons (trim, lowercase, collapse whitespace)."""
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _is_real_runner_ref(ref: str | None) -> bool:
+    """Return True if runner_ref is a real job/session identifier rather than a backfill placeholder."""
+    if not ref or not ref.strip():
+        return False
+    return not ref.strip().startswith("backfill_")
 
 
 def _parse_gpu_indices(resource: str | None) -> set[str] | None:
@@ -222,6 +236,17 @@ class ExploomService:
         if action == "create":
             if not title or not title.strip():
                 raise ValueError("title is required when creating an experiment")
+
+            norm_title = _normalize_text(title)
+            for existing in self.db.list_experiments(project=proj):
+                if existing.get("status_override") in ("archived", "superseded"):
+                    continue
+                if _normalize_text(existing["title"]) == norm_title:
+                    raise ValueError(
+                        f"Duplicate experiment title: '{existing['id']}' already exists with "
+                        f"title '{existing['title']}'. Use action='update' with "
+                        f"exp_id='{existing['id']}' instead."
+                    )
 
             def _note_factory(new_exp_id: str) -> str:
                 return str(note_file_path(self.config.notes_dir, proj, new_exp_id))
@@ -432,6 +457,8 @@ class ExploomService:
         exit_code: int | None = None,
         error_summary: str | None = None,
         metrics: dict[str, Any] | None = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
         git_commit: str | None = None,
         git_branch: str | None = None,
         diff_hash: str | None = None,
@@ -474,6 +501,74 @@ class ExploomService:
         else:
             resolved_runner = "custom"
 
+        # Hard deduplication for backfill/record attempts
+        existing_proj_attempts = self.db.list_attempts(project=proj)
+        if _is_real_runner_ref(runner_ref) and resolved_server != "unknown":
+            clean_ref = runner_ref.strip()  # type: ignore[union-attr]
+            for att in existing_proj_attempts:
+                if (
+                    att["server"].strip().lower() == resolved_server.lower()
+                    and (att.get("runner_ref") or "").strip() == clean_ref
+                ):
+                    if att["exp_id"] != exp_id:
+                        raise ValueError(
+                            f"Duplicate attempt: runner_ref '{clean_ref}' on server "
+                            f"'{resolved_server}' is already recorded under "
+                            f"'{att['exp_id']}#{att['attempt_no']}'. Use that experiment instead "
+                            "of creating a duplicate."
+                        )
+                    return {
+                        "project": proj,
+                        "exp_id": exp_id,
+                        "attempt_no": att["attempt_no"],
+                        "server": att["server"],
+                        "runner": att["runner"],
+                        "runner_ref": att["runner_ref"],
+                        "log_path": att["log_path"],
+                        "status": att["status"],
+                        "exit_code": att["exit_code"],
+                        "error_summary": att["error_summary"],
+                        "started_at": att["started_at"],
+                        "ended_at": att["ended_at"],
+                        "conflict_warnings": [],
+                        "deduplicated": True,
+                    }
+
+        if resolved_run_cmd:
+            for att in existing_proj_attempts:
+                if att["exp_id"] != exp_id:
+                    continue
+                if (
+                    att["server"].strip().lower() == resolved_server.lower()
+                    and att["workdir"].strip() == resolved_workdir
+                    and att["run_cmd"].strip() == resolved_run_cmd
+                    and att["status"] == resolved_status
+                ):
+                    if (
+                        _is_real_runner_ref(runner_ref)
+                        and _is_real_runner_ref(att.get("runner_ref"))
+                        and runner_ref.strip() != (att.get("runner_ref") or "").strip()  # type: ignore[union-attr]
+                    ):
+                        continue
+                    if started_at and att.get("started_at") and started_at != att["started_at"]:
+                        continue
+                    return {
+                        "project": proj,
+                        "exp_id": exp_id,
+                        "attempt_no": att["attempt_no"],
+                        "server": att["server"],
+                        "runner": att["runner"],
+                        "runner_ref": att["runner_ref"],
+                        "log_path": att["log_path"],
+                        "status": att["status"],
+                        "exit_code": att["exit_code"],
+                        "error_summary": att["error_summary"],
+                        "started_at": att["started_at"],
+                        "ended_at": att["ended_at"],
+                        "conflict_warnings": [],
+                        "deduplicated": True,
+                    }
+
         conflicts: list[str] = []
         if resolved_status == "running" and resolved_server != "unknown":
             conflicts = self.check_resource_conflicts(
@@ -503,6 +598,8 @@ class ExploomService:
             meta_dir_factory=_meta_factory,
             runner_ref_factory=_ref_factory,
             status=resolved_status,
+            started_at=started_at,
+            ended_at=ended_at,
             git_commit=git_commit,
             git_branch=git_branch,
             diff_hash=diff_hash,
@@ -517,6 +614,8 @@ class ExploomService:
                 exit_code=exit_code,
                 error_summary=resolved_error,
                 metrics=metrics,
+                started_at=started_at,
+                ended_at=ended_at,
             )
             or attempt
         )
@@ -532,6 +631,8 @@ class ExploomService:
             "status": updated["status"],
             "exit_code": updated["exit_code"],
             "error_summary": updated["error_summary"],
+            "started_at": updated["started_at"],
+            "ended_at": updated["ended_at"],
             "conflict_warnings": conflicts,
         }
 
@@ -540,13 +641,22 @@ class ExploomService:
         *,
         exp_id: str,
         attempt_no: int | None = None,
+        server: str | None = None,
+        workdir: str | None = None,
+        resource: str | None = None,
+        run_cmd: str | None = None,
+        resume_cmd: str | None = None,
+        runner: str | None = None,
         status: str | None = None,
         exit_code: int | None = None,
         log_tail: str = "",
         error_summary: str | None = None,
         metrics: dict[str, Any] | None = None,
         runner_ref: str | None = None,
+        log_path: str | None = None,
         log_mtime: str | None = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
         last_synced_at: str | None = None,
         sync_error: str | None = None,
         clear_sync_error: bool = False,
@@ -602,12 +712,21 @@ class ExploomService:
             project=proj,
             exp_id=exp_id,
             attempt_no=target_no,
+            server=server,
+            workdir=workdir,
+            resource=resource,
+            run_cmd=run_cmd,
+            resume_cmd=resume_cmd,
+            runner=runner,
             status=resolved_status,
             exit_code=exit_code,
             error_summary=resolved_error,
             metrics=metrics,
             runner_ref=runner_ref,
+            log_path=log_path,
             log_mtime=log_mtime,
+            started_at=started_at,
+            ended_at=ended_at,
             last_synced_at=last_synced_at,
             sync_error=sync_error,
             clear_sync_error=clear_sync_error,
@@ -623,9 +742,14 @@ class ExploomService:
             "project": proj,
             "exp_id": exp_id,
             "attempt_no": updated["attempt_no"],
+            "server": updated["server"],
+            "resource": updated["resource"],
+            "runner": updated["runner"],
             "status": updated["status"],
             "exit_code": updated["exit_code"],
             "error_summary": updated["error_summary"],
+            "started_at": updated["started_at"],
+            "ended_at": updated["ended_at"],
             "sync_error": updated["sync_error"],
         }
 
@@ -658,6 +782,19 @@ class ExploomService:
         if attempt_no is not None:
             if self.db.get_attempt(proj, exp_id, attempt_no) is None:
                 raise KeyError(f"Attempt '{exp_id}#{attempt_no}' not found in project '{proj}'")
+
+        norm_summary = _normalize_text(summary)
+        for existing_f in self.db.list_findings(project=proj, exp_id=exp_id):
+            if existing_f["kind"] == kind and _normalize_text(existing_f["summary"]) == norm_summary:
+                return {
+                    "project": proj,
+                    "finding_id": existing_f["id"],
+                    "exp_id": exp_id,
+                    "attempt_no": existing_f["attempt_no"],
+                    "kind": existing_f["kind"],
+                    "note_path": exp["note_path"],
+                    "deduplicated": True,
+                }
 
         finding = self.db.create_finding(
             project=proj,
@@ -746,6 +883,16 @@ class ExploomService:
                     if is_stale and silent_min is not None
                     else None
                 )
+                dur_sec = (
+                    compute_duration_seconds(
+                        latest.get("started_at"),
+                        latest.get("ended_at"),
+                        is_running=(latest["status"] == "running"),
+                        now=now,
+                    )
+                    if latest
+                    else None
+                )
                 node: dict[str, Any] = {
                     "id": exp["id"],
                     "title": exp["title"],
@@ -758,12 +905,19 @@ class ExploomService:
                     "stale_label": stale_label,
                     "tags": exp["tags"],
                     "metrics": exp["metrics"],
+                    "created_at": exp["created_at"],
                     "latest_attempt": (
                         {
                             "attempt_no": latest["attempt_no"],
                             "server": latest["server"],
                             "resource": latest["resource"],
                             "status": latest["status"],
+                            "started_at": latest.get("started_at"),
+                            "ended_at": latest.get("ended_at"),
+                            "duration_seconds": dur_sec,
+                            "duration_label": (
+                                format_duration_seconds(dur_sec) if dur_sec is not None else None
+                            ),
                             "error_summary": latest["error_summary"],
                             "sync_error": latest["sync_error"],
                         }
@@ -814,10 +968,13 @@ class ExploomService:
         running_only: bool = False,
         server: str | None = None,
         tag: str | None = None,
+        sort_by: str = "created",
         all_projects: bool = False,
         cwd: Path | str | None = None,
         now: datetime | None = None,
     ) -> list[dict[str, Any]]:
+        if sort_by not in ("created", "started", "ended"):
+            raise ValueError(f"Invalid sort_by '{sort_by}': expected 'created', 'started', or 'ended'")
         proj = None if all_projects else self.resolve_project(project=project, cwd=cwd)
         exps = self.db.list_experiments(project=proj)
         latest_map = self._latest_attempts_by_exp(project=proj)
@@ -838,6 +995,19 @@ class ExploomService:
             if tag and tag not in exp["tags"]:
                 continue
 
+            started_at = latest.get("started_at") if latest else None
+            ended_at = latest.get("ended_at") if latest else None
+            dur_sec = (
+                compute_duration_seconds(
+                    started_at,
+                    ended_at,
+                    is_running=(latest["status"] == "running"),
+                    now=now,
+                )
+                if latest
+                else None
+            )
+
             cards.append(
                 {
                     "project": exp["project"],
@@ -855,11 +1025,23 @@ class ExploomService:
                     "metrics": exp["metrics"],
                     "server": latest["server"] if latest else None,
                     "attempt_no": latest["attempt_no"] if latest else None,
+                    "created_at": exp["created_at"],
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "duration_seconds": dur_sec,
+                    "duration_label": (
+                        format_duration_seconds(dur_sec) if dur_sec is not None else None
+                    ),
                     "error_summary": latest["error_summary"] if latest else None,
                     "sync_error": latest["sync_error"] if latest else None,
                     "updated_at": exp["updated_at"],
                 }
             )
+
+        if sort_by == "started":
+            cards.sort(key=lambda c: (c["started_at"] is None, c["started_at"] or "", c["id"]))
+        elif sort_by == "ended":
+            cards.sort(key=lambda c: (c["ended_at"] is None, c["ended_at"] or "", c["id"]))
         return cards
 
     def get_context(
@@ -901,7 +1083,23 @@ class ExploomService:
             curr_parent = p_exp.get("parent_id")
         ancestors.reverse()
 
-        recent_attempts = all_attempts[-2:]
+        recent_attempts = []
+        for att in all_attempts[-2:]:
+            dur_sec = compute_duration_seconds(
+                att.get("started_at"),
+                att.get("ended_at"),
+                is_running=(att["status"] == "running"),
+                now=now,
+            )
+            recent_attempts.append(
+                {
+                    **att,
+                    "duration_seconds": dur_sec,
+                    "duration_label": (
+                        format_duration_seconds(dur_sec) if dur_sec is not None else None
+                    ),
+                }
+            )
         findings = self.db.list_findings(project=proj, exp_id=exp_id)
         note_content = read_note(exp["note_path"])
 
@@ -951,6 +1149,12 @@ class ExploomService:
                 threshold_minutes=self.config.stale_threshold_minutes,
                 now=now,
             )
+            dur_sec = compute_duration_seconds(
+                att.get("started_at"),
+                att.get("ended_at"),
+                is_running=True,
+                now=now,
+            )
             rows.append(
                 {
                     "project": att["project"],
@@ -963,6 +1167,10 @@ class ExploomService:
                     "runner": att["runner"],
                     "runner_ref": att["runner_ref"],
                     "started_at": att["started_at"],
+                    "duration_seconds": dur_sec,
+                    "duration_label": (
+                        format_duration_seconds(dur_sec) if dur_sec is not None else None
+                    ),
                     "is_stale": is_stale,
                     "stale_minutes": silent_min,
                     "stale_label": (
@@ -1141,6 +1349,7 @@ class ExploomService:
                 exit_code=exit_code,
                 error_summary=error_summary,
                 log_mtime=probe.log_mtime,
+                started_at=meta.get("started_at") or None,
                 ended_at=ended_at,
                 last_synced_at=synced_at,
                 clear_sync_error=True,

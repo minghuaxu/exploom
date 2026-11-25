@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "exploom",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local single-control-plane Experiment Lineage & Ops plugin for AI Coding Agents.",
   "owner": {
     "name": "minghuaxu"
@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "exploom",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "displayName": "Exploom",
       "displayName_i18n": {
         "zh-CN": "Exploom 实验指挥台"
